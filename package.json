@@ -1,6 +1,6 @@
 {
   "name": "transparent-browser",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "可调透明度的抖音/B站浏览器，支持双击静音最小化",
   "main": "main.js",
   "author": "SxxxY0324",

@@ -58,6 +58,10 @@ html, body {
   background: #00a1d6;
 }
 
+.site-btn[data-url*="4399"].active {
+  background: #ff6600;
+}
+
 .opacity-control,
 .volume-control {
   display: flex;
