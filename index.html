@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>透明浏览器</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="toolbar">
+    <div class="drag-region"></div>
+
+    <div class="site-buttons">
+      <button class="site-btn active" data-url="https://www.douyin.com">抖音</button>
+      <button class="site-btn" data-url="https://www.bilibili.com">B站</button>
+    </div>
+
+    <div class="opacity-control">
+      <span class="opacity-label">透明度</span>
+      <input type="range" id="opacitySlider" min="20" max="100" value="50">
+      <span id="opacityValue">50%</span>
+    </div>
+
+    <div class="volume-control">
+      <span class="volume-icon" id="volumeIcon">🔇</span>
+      <input type="range" id="volumeSlider" min="0" max="100" value="0">
+      <span id="volumeValue">0%</span>
+    </div>
+
+    <div class="window-controls">
+      <button class="control-btn quick-hide" id="quickHideBtn" title="静音并最小化">⏬</button>
+      <button class="control-btn minimize" id="minimizeBtn">─</button>
+      <button class="control-btn close" id="closeBtn">✕</button>
+    </div>
+  </div>
+
+  <webview id="webview" src="https://www.douyin.com" allowpopups></webview>
+
+  <script>
+    const webview = document.getElementById('webview');
+    const opacitySlider = document.getElementById('opacitySlider');
+    const opacityValue = document.getElementById('opacityValue');
+    const volumeSlider = document.getElementById('volumeSlider');
+    const volumeValue = document.getElementById('volumeValue');
+    const volumeIcon = document.getElementById('volumeIcon');
+    const siteButtons = document.querySelectorAll('.site-btn');
+    const minimizeBtn = document.getElementById('minimizeBtn');
+    const closeBtn = document.getElementById('closeBtn');
+
+    // 透明度控制
+    opacitySlider.addEventListener('input', (e) => {
+      const value = e.target.value;
+      opacityValue.textContent = value + '%';
+      window.electronAPI.setOpacity(value / 100);
+    });
+
+    // 音量控制
+    function setVolume(value) {
+      const volume = value / 100;
+      volumeValue.textContent = value + '%';
+
+      if (value == 0) {
+        volumeIcon.textContent = '🔇';
+      } else if (value < 50) {
+        volumeIcon.textContent = '🔉';
+      } else {
+        volumeIcon.textContent = '🔊';
+      }
+
+      webview.executeJavaScript(`
+        document.querySelectorAll('video, audio').forEach(el => el.volume = ${volume});
+      `).catch(() => {});
+    }
+
+    volumeSlider.addEventListener('input', (e) => setVolume(e.target.value));
+
+    volumeIcon.addEventListener('click', () => {
+      if (volumeSlider.value > 0) {
+        volumeSlider.dataset.prevValue = volumeSlider.value;
+        volumeSlider.value = 0;
+      } else {
+        volumeSlider.value = volumeSlider.dataset.prevValue || 100;
+      }
+      setVolume(volumeSlider.value);
+    });
+
+    // 页面加载完成和导航后重新设置音量
+    webview.addEventListener('dom-ready', () => setVolume(volumeSlider.value));
+    webview.addEventListener('did-navigate', () => setVolume(volumeSlider.value));
+    webview.addEventListener('did-navigate-in-page', () => setVolume(volumeSlider.value));
+
+    // 初始化：设置默认透明度
+    window.electronAPI.setOpacity(0.5);
+
+    // 网站切换
+    siteButtons.forEach(btn => {
+      btn.addEventListener('click', () => {
+        siteButtons.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        webview.src = btn.dataset.url;
+      });
+    });
+
+    // 窗口控制
+    const quickHideBtn = document.getElementById('quickHideBtn');
+
+    quickHideBtn.addEventListener('click', () => {
+      // 只在非静音状态下保存当前音量
+      if (volumeSlider.value > 0) {
+        volumeSlider.dataset.prevValue = volumeSlider.value;
+      }
+      volumeSlider.value = 0;
+      setVolume(0);
+      window.electronAPI.minimizeWindow();
+    });
+    minimizeBtn.addEventListener('click', () => window.electronAPI.minimizeWindow());
+    closeBtn.addEventListener('click', () => window.electronAPI.closeWindow());
+
+    // 空白区域拖拽功能
+    const dragRegion = document.querySelector('.drag-region');
+    let isDragging = false;
+    let startX = 0, startY = 0;
+    let winBounds = null;
+
+    dragRegion.addEventListener('mousedown', async (e) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+
+      // 获取当前窗口边界（位置+大小）
+      winBounds = await window.electronAPI.getWindowBounds();
+      startX = e.screenX;
+      startY = e.screenY;
+      isDragging = true;
+
+      // 在 window 上监听，确保鼠标移出窗口也能响应
+      const onMouseMove = (e) => {
+        if (!isDragging || !winBounds) return;
+        const newX = winBounds.x + (e.screenX - startX);
+        const newY = winBounds.y + (e.screenY - startY);
+        // 使用固定的宽高，避免大小改变
+        window.electronAPI.setWindowBounds(newX, newY, winBounds.width, winBounds.height);
+      };
+
+      const onMouseUp = () => {
+        isDragging = false;
+        winBounds = null;
+        window.removeEventListener('mousemove', onMouseMove);
+        window.removeEventListener('mouseup', onMouseUp);
+      };
+
+      window.addEventListener('mousemove', onMouseMove);
+      window.addEventListener('mouseup', onMouseUp);
+    });
+
+    // 双击空白区域最小化并静音
+    dragRegion.addEventListener('dblclick', () => {
+      isDragging = false;
+      winBounds = null;
+      // 只在非静音状态下保存当前音量
+      if (volumeSlider.value > 0) {
+        volumeSlider.dataset.prevValue = volumeSlider.value;
+      }
+      volumeSlider.value = 0;
+      setVolume(0);
+      window.electronAPI.minimizeWindow();
+    });
+  </script>
+</body>
+</html>
